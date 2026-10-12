@@ -1,120 +1,119 @@
-# Inventory Service · Java 25 LTS
-
-A focused Spring Boot microservice that checks product stock against a requested quantity. Built with Java 25, Spring Data JPA, and PostgreSQL, this project demonstrates a layered REST API with input validation and structured error responses.
+# Food Delivery Application
 
 ![Java 25 LTS](https://img.shields.io/badge/Java-25_LTS-orange)
-![Spring Boot 3.5.13](https://img.shields.io/badge/Spring_Boot-3.5.13-6DB33F)
+![Spring Boot](https://img.shields.io/badge/Spring_Boot-Microservices-6DB33F)
 ![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL-4169E1)
 
-## Highlights
+A backend microservices project featuring customer command/query separation, a product catalog, stock reservations, order processing, and a JWT-secured API gateway. This repository includes all six services, their existing tests, API documentation, and local database setup scripts.
 
-- Check stock availability by product code and requested quantity.
-- Reject non-positive quantities and return a structured 404 for unknown products.
-- Persist inventory through Spring Data JPA and PostgreSQL.
-- Seed demo products using repeatable PostgreSQL inserts.
-- Configure database connection and server port through environment variables.
-- Compile and package on Java 25 LTS.
+## Services
 
-## Architecture
+| Service | Responsibility | Documentation |
+|---|---|---|
+| API Gateway | Routing, JWT validation, rate limiting and circuit breakers | [README](api-gateway/README.md) |
+| Customer Command | Customer registration and updates | [README](customer-command-service/README.md) |
+| Customer Query | Customer reads and searches | [README](customer-query-service/README.md) |
+| Product | Product catalog and transactional inventory reservations | [README](product-service/README.md) |
+| Order | Order lifecycle and Product Service integration | [README](spring-order-service/README.md) |
+| Inventory | Independent product-code stock availability API | [README](inventory-service/README.md) |
 
 ```mermaid
 flowchart LR
-    Client[API client] --> Controller[InventoryController]
-    Controller --> Service[InventoryService]
-    Service --> Repository[InventoryRepository]
-    Repository --> DB[(PostgreSQL)]
-    Controller -. errors .-> Handler[GlobalExceptionHandler]
+    Client[API client] --> Gateway[API Gateway :8080]
+    Gateway --> Command[Customer Command :8082]
+    Gateway --> Query[Customer Query :8087]
+    Gateway --> Product[Product :8083]
+    Gateway --> Order[Order :8084]
+    Command --> Customers[(customer_db)]
+    Query --> Customers
+    Order --> Product
+    Order --> Orders[(order_db)]
+    Product --> Products[(product_db)]
+    Local[Direct local API client] --> Inventory[Inventory :8086]
+    Inventory --> Stock[(inventorydb)]
 ```
 
-The controller validates the request, the service evaluates stock, and the repository retrieves the inventory record. Checking availability does not reserve or deduct stock.
+This workspace contains six independent Spring Boot services. There is no root Maven reactor, so run each service from its own directory (or pass its `pom.xml` to Maven).
 
-## Run locally
+## Local prerequisites
 
-Prerequisites: JDK 25, Maven 3.9 or newer, and PostgreSQL. Set `JAVA_HOME` to your installed JDK 25 and confirm `mvn -version` reports Java 25.
+- Java 25 and Maven 3.9 or newer
+- PostgreSQL running on `localhost:5432`
+- A PostgreSQL login that can create databases. Most service defaults use username `postgres` and password `root`; Product Service defaults to an empty password. Set `DB_USERNAME` and `DB_PASSWORD` to match your local PostgreSQL account.
 
-1. Create a PostgreSQL database:
+Install JDK 25 separately; a runtime is not bundled in this repository. In every service terminal, set `JAVA_HOME` to your installed JDK and configure your local database credentials:
 
-   ```sql
-   CREATE DATABASE inventorydb;
-   ```
-
-2. Set your connection details in the terminal:
-
-   ```sh
-   export INVENTORY_DB_URL=jdbc:postgresql://localhost:5432/inventorydb
-   export INVENTORY_DB_USERNAME=postgres
-   export INVENTORY_DB_PASSWORD='replace-with-your-local-password'
-   ```
-
-3. Build and start from the repository root:
-
-   ```sh
-   mvn clean verify
-   mvn spring-boot:run
-   ```
-
-The API listens on `http://localhost:8086`. Demo rows are initialized at startup without overwriting existing rows.
-
-## Try the API
-
-```sh
-curl 'http://localhost:8086/api/inventory/P1001?quantity=2'
+```bash
+export JAVA_HOME=/path/to/your/jdk-25
+export PATH="$JAVA_HOME/bin:$PATH"
+export DB_USERNAME=postgres
+export DB_PASSWORD='replace-with-your-local-password'
+java -version
 ```
 
-Example response with the seeded data:
+For a standard Homebrew PostgreSQL install, the database role is often your macOS username and may not have a password. In that case use `export DB_USERNAME="$(id -un)"` and `export DB_PASSWORD=` instead. Repeat the matching values in every service terminal.
 
-```json
-{
-  "productCode": "P1001",
-  "productName": "Laptop",
-  "availableQuantity": 10,
-  "available": true
-}
+Create the local databases once:
+
+```bash
+psql -d postgres -f database/setup-local.sql
 ```
 
-| Request | Expected behavior |
-| --- | --- |
-| `P1001?quantity=2` | Available with the seeded stock of 10 |
-| `P1001?quantity=11` | HTTP 200 with `available: false` |
-| `UNKNOWN?quantity=1` | HTTP 404 with `PRODUCT_NOT_FOUND` |
-| `P1001?quantity=0` | HTTP 400 |
+The SQL creates `customer_db`, `product_db`, `order_db`, `inventorydb`, and `product_test` only when they are missing. Connect as a PostgreSQL role with database-creation privileges; add `-U <admin-user>` if your local admin role differs from your operating-system username. Existing databases are left as-is, so make sure `DB_USERNAME` owns each existing database or has permission to connect and create tables there. The inventory service inherits `DB_USERNAME` and `DB_PASSWORD` and also accepts `INVENTORY_DB_URL`, `INVENTORY_DB_USERNAME`, and `INVENTORY_DB_PASSWORD`. Order Service accepts `ORDER_DB_URL` to override its default database URL.
 
-## Configuration
+## Start the services
 
-| Variable | Purpose | Default |
-| --- | --- | --- |
-| `INVENTORY_SERVER_PORT` | HTTP port | `8086` |
-| `INVENTORY_DB_URL` | PostgreSQL JDBC URL | `jdbc:postgresql://localhost:5432/inventorydb` |
-| `INVENTORY_DB_USERNAME` | Database user | `DB_USERNAME`, then `postgres` |
-| `INVENTORY_DB_PASSWORD` | Database password | `DB_PASSWORD`, then local demo value |
+Open a separate terminal for each service, repeat the environment setup above in each terminal, and run the command from the project root. Run Customer Command first so it creates the customer tables before Customer Query starts. Product Service must be running before placing orders. Start the gateway after its backends.
 
-Always supply your own database credentials. The included defaults and automatic schema updates are for local development.
-
-## Project layout
-
-```text
-src/main/java/com/javacodeex/inventory/
-├── controller/    HTTP endpoint and validation
-├── service/       Availability logic
-├── repository/    JPA queries
-├── entity/        Inventory persistence model
-├── dto/           API response
-└── exception/     Structured error handling
-src/main/resources/
-├── application.properties
-└── data.sql
+```bash
+mvn -f customer-command-service/pom.xml spring-boot:run
+mvn -f customer-query-service/pom.xml spring-boot:run
+mvn -f product-service/pom.xml spring-boot:run
+mvn -f inventory-service/pom.xml spring-boot:run
+mvn -f spring-order-service/pom.xml spring-boot:run
+./api-gateway/mvnw -f api-gateway/pom.xml spring-boot:run
 ```
 
-## Java 25 validation
+| Service | Port | Database |
+|---|---:|---|
+| API Gateway | 8080 | — |
+| Customer Command | 8082 | `customer_db` |
+| Product | 8083 | `product_db` |
+| Order | 8084 | `order_db` |
+| Inventory | 8086 | `inventorydb` |
+| Customer Query | 8087 | `customer_db` |
 
-The service was verified with Microsoft OpenJDK 25.0.2 and Maven 3.10.0:
+Health endpoints are available at `/actuator/health` on each service that exposes Actuator. The gateway health endpoint is `http://localhost:8080/actuator/health`.
 
-- `mvn clean test-compile -q` succeeded.
-- `mvn clean verify -Djacoco.skip=false` succeeded and produced an executable JAR.
-- Compiled class-file version 69 confirms Java 25 output.
+## Important integration details
 
-There are currently no automated tests or coverage measurements. The dependency vulnerability scan did not complete, and database-backed startup was not exercised during the Java upgrade. See [upgrade notes](docs/java-25-upgrade.md).
+- The Order Service uses Product Service (`8083`) for product lookups and transactional inventory reservations. The standalone Inventory Service (`8086`) currently serves the product-code availability API described in its README; it is not part of order placement or gateway routing.
+- The gateway validates JWTs for protected routes. This workspace does not include an identity provider or token issuer. Public product reads and customer registration can be used without a token; protected customer, product-write, and order routes need a valid RS256 token from an external issuer. Configure `JWT_ISSUER_URI`, `JWT_JWK_SET_URI`, and `JWT_AUDIENCE` in the gateway environment.
+- Services also expose their own ports for local development. Do not expose backend ports publicly; the gateway is the intended client entry point when authentication is configured.
 
-## Scope
+## Useful local URLs
 
-This is a backend portfolio/demo service. It does not include a frontend, authentication, stock reservations, or a hosted live demo. Before production use, add tests, authentication as needed, managed database migrations, and a completed dependency security review.
+- Gateway: `http://localhost:8080`
+- Product Swagger UI: `http://localhost:8083/swagger-ui.html`
+- Order Swagger UI: `http://localhost:8084/swagger-ui.html`
+- Inventory availability: `http://localhost:8086/api/inventory/P1001?quantity=2`
+- Customer Command Swagger UI: `http://localhost:8082/swagger-ui.html`
+- Customer Query Swagger UI: `http://localhost:8087/swagger-ui.html`
+
+For service-specific configuration and API examples, see each service's README.
+
+## Build and verification
+
+Run each service's Maven lifecycle independently:
+
+```bash
+for service in api-gateway customer-command-service customer-query-service product-service spring-order-service inventory-service; do
+  mvn -f "$service/pom.xml" clean verify || exit 1
+done
+```
+
+Existing tests are included with their services. PostgreSQL integration tests may require additional database configuration; see [Product verification](product-service/docs/VERIFICATION.md). Inventory currently has no automated tests. Publishing this repository does not constitute a fresh full-system test run.
+
+## Project scope
+
+This repository showcases the backend. It does not include a frontend, hosted deployment, or JWT token issuer. Local development credentials and schema settings must be configured appropriately before deployment. See the service documentation for API behavior and verification limits.

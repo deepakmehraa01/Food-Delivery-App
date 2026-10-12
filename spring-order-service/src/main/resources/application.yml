@@ -1,0 +1,49 @@
+server:
+  port: 8084
+spring:
+  application:
+    name: order-service
+  datasource:
+    url: ${ORDER_DB_URL:jdbc:postgresql://localhost:5432/order_db}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:root}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    open-in-view: false
+services:
+  product:
+    url: http://localhost:8083
+spring.cloud.openfeign:
+  client:
+    config:
+      productClient:
+        connectTimeout: 2000
+        readTimeout: 3000
+        loggerLevel: basic
+resilience4j:
+  retry:
+    instances:
+      productRead:
+        max-attempts: 3
+        wait-duration: 500ms
+        ignore-exceptions:
+          - com.ecommerce.order.exception.ProductNotFoundException
+  circuitbreaker:
+    instances:
+      productRead:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+      productWrite:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
