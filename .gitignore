@@ -1,0 +1,14 @@
+target/
+.classpath
+.project
+.settings/
+
+.DS_Store
+.env
+.env.*
+!.env.example
+*.log
+.jdk/
+.idea/
+.vscode/
+.github/modernize/
