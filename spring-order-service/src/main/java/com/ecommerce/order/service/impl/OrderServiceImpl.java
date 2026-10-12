@@ -28,6 +28,7 @@ public class OrderServiceImpl implements OrderService {
 	private final OrderRepository orders;
 	private final ProductIntegrationService productIntegration;
 	private final OrderMapper mapper;
+	private final com.ecommerce.order.notification.OrderNotificationOutbox notificationOutbox;
 
 	@Override
 	@Transactional(noRollbackFor = ProductServiceUnavailableException.class)
@@ -55,6 +56,7 @@ public class OrderServiceImpl implements OrderService {
 		try {
 			productIntegration.reserve(new InventoryReservationRequest(saved.getId(), reservationItems));
 			saved.setStatus(OrderStatus.INVENTORY_RESERVED);
+			notificationOutbox.enqueue(saved);
 			return mapper.toResponse(orders.saveAndFlush(saved));
 		} catch (RuntimeException failure) {
 			// A timeout is ambiguous: Product Service may have committed the idempotent

@@ -1,6 +1,20 @@
 server:
   port: 8084
 spring:
+  sql:
+    init:
+      mode: always
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        enable.idempotence: true
+        delivery.timeout.ms: 10000
+        request.timeout.ms: 5000
+        max.block.ms: 5000
   application:
     name: order-service
   datasource:
@@ -15,6 +29,8 @@ spring:
 services:
   product:
     url: http://localhost:8083
+notifications:
+  topic: ${ORDER_NOTIFICATION_TOPIC:orders.placed.v1}
 spring.cloud.openfeign:
   client:
     config:

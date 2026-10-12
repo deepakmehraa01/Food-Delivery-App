@@ -4,7 +4,7 @@
 ![Spring Boot](https://img.shields.io/badge/Spring_Boot-Microservices-6DB33F)
 ![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL-4169E1)
 
-A backend microservices project featuring customer command/query separation, a product catalog, stock reservations, order processing, and a JWT-secured API gateway. This repository includes all six services, their existing tests, API documentation, and local database setup scripts.
+A backend microservices project featuring customer command/query separation, a product catalog, stock reservations, order processing, Kafka-based order confirmation emails, and a JWT-secured API gateway. This repository includes all seven services, tests, API documentation, and local database setup scripts.
 
 ## Services
 
@@ -16,6 +16,7 @@ A backend microservices project featuring customer command/query separation, a p
 | Product | Product catalog and transactional inventory reservations | [README](product-service/README.md) |
 | Order | Order lifecycle and Product Service integration | [README](spring-order-service/README.md) |
 | Inventory | Independent product-code stock availability API | [README](inventory-service/README.md) |
+| Notification | Kafka consumer, durable email queue and SMTP order confirmations | [README](notification-service/README.md) |
 
 ```mermaid
 flowchart LR
@@ -28,12 +29,18 @@ flowchart LR
     Query --> Customers
     Order --> Product
     Order --> Orders[(order_db)]
+    Order --> Outbox[Transactional outbox]
+    Outbox --> Kafka[Kafka orders.placed.v1]
+    Kafka --> Notification[Notification :8088]
+    Notification --> Query
+    Notification --> Inbox[(notification_db)]
+    Notification --> SMTP[SMTP email]
     Product --> Products[(product_db)]
     Local[Direct local API client] --> Inventory[Inventory :8086]
     Inventory --> Stock[(inventorydb)]
 ```
 
-This workspace contains six independent Spring Boot services. There is no root Maven reactor, so run each service from its own directory (or pass its `pom.xml` to Maven).
+This workspace contains seven independent Spring Boot services. There is no root Maven reactor, so run each service from its own directory (or pass its `pom.xml` to Maven).
 
 ## Local prerequisites
 
@@ -63,6 +70,8 @@ The SQL creates `customer_db`, `product_db`, `order_db`, `inventorydb`, and `pro
 
 ## Start the services
 
+For email notifications, start Kafka and the local test mailbox first with `docker compose -f compose.notifications.yml up -d`, then start Notification Service. Its default SMTP settings capture emails at `http://localhost:8025`; see [real SMTP setup](notification-service/README.md#deliver-to-real-email-addresses) to deliver to customers' real inboxes. Database setup also creates `notification_db`.
+
 Open a separate terminal for each service, repeat the environment setup above in each terminal, and run the command from the project root. Run Customer Command first so it creates the customer tables before Customer Query starts. Product Service must be running before placing orders. Start the gateway after its backends.
 
 ```bash
@@ -70,6 +79,7 @@ mvn -f customer-command-service/pom.xml spring-boot:run
 mvn -f customer-query-service/pom.xml spring-boot:run
 mvn -f product-service/pom.xml spring-boot:run
 mvn -f inventory-service/pom.xml spring-boot:run
+mvn -f notification-service/pom.xml spring-boot:run
 mvn -f spring-order-service/pom.xml spring-boot:run
 ./api-gateway/mvnw -f api-gateway/pom.xml spring-boot:run
 ```
@@ -82,6 +92,7 @@ mvn -f spring-order-service/pom.xml spring-boot:run
 | Order | 8084 | `order_db` |
 | Inventory | 8086 | `inventorydb` |
 | Customer Query | 8087 | `customer_db` |
+| Notification | 8088 | `notification_db` |
 
 Health endpoints are available at `/actuator/health` on each service that exposes Actuator. The gateway health endpoint is `http://localhost:8080/actuator/health`.
 
@@ -107,7 +118,7 @@ For service-specific configuration and API examples, see each service's README.
 Run each service's Maven lifecycle independently:
 
 ```bash
-for service in api-gateway customer-command-service customer-query-service product-service spring-order-service inventory-service; do
+for service in api-gateway customer-command-service customer-query-service product-service spring-order-service inventory-service notification-service; do
   mvn -f "$service/pom.xml" clean verify || exit 1
 done
 ```
